@@ -14,10 +14,10 @@ pipeline {
 
     environment {
         SCANNER_HOME  = tool 'sonar-scanner'
-        DOCKERHUB_USER = 'akshay23007'
+        DOCKERHUB_USER = 'naresh9163'
         IMAGE_NAME     = "${DOCKERHUB_USER}/hotstar"
-        EKS_REGION     = 'ap-south-1'
-        EKS_CLUSTER    = 'cloudnetflix'
+        EKS_REGION     = 'us-east-1'
+        EKS_CLUSTER    = 'cloudhotstar'
     }
 
     stages {
@@ -33,7 +33,7 @@ pipeline {
                     $class: 'GitSCM',
                     branches: [[name: '*/main']],
                     userRemoteConfigs: [[
-                        url: 'https://github.com/AKSHAY355-a/DevSecOps-Project.git',
+                        url: 'https://github.com/Naresh0591/Hotstar-devops.git',
                         credentialsId: 'github-token'
                     ]]
                 ])
@@ -76,7 +76,7 @@ pipeline {
             steps {
                 script {
                     withDockerRegistry(credentialsId: 'docker', url: 'https://index.docker.io/v1/') {
-                        withCredentials([string(credentialsId: 'tmdb-api-key', variable: 'TMDB_KEY')]) {
+                        withCredentials([string(credentialsId: 'tmdb-api-key', variable: '68f46e27dfbb53cb1f47418ffb3fb8a1')]) {
                             sh "docker build --no-cache --build-arg REACT_APP_TMDB=${TMDB_KEY} -t ${IMAGE_NAME}:${BUILD_NUMBER} hotstar/"
                             sh "docker tag ${IMAGE_NAME}:${BUILD_NUMBER} ${IMAGE_NAME}:latest"
                             sh "docker push ${IMAGE_NAME}:${BUILD_NUMBER}"
