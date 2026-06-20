@@ -2,6 +2,79 @@ trigger:
   branches:
     include:
       - dev
-      - test
+      - uat
 
-We use Azure devops and in this my scenario is in our project there are 4 branches and what ever the changes made in those 4 branches should be made in my pdg branch before implementing the change in pdg branch whenever there is change in those 4 branches a PR needs to be created and then we need to get notified for it then after the PR approval the changes that made in 4 branches or either 1 branch needs to automatically apply in my pdg branch what could be the possible ways for it 
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  targetBranch: 'main'
+  organization: 'https://dev.azure.com/yellineedikalpana20010484/'
+  project: 'Test'
+  repoName: 'Test'
+
+steps:
+  - checkout: self
+    persistCredentials: true
+    fetchDepth: 0
+
+  - bash: |
+      set -e
+      az devops configure --defaults organization=$(organization) project="$(project)"
+
+      SOURCE_BRANCH="$(Build.SourceBranchName)"
+      echo "Source branch: $SOURCE_BRANCH"
+
+      git fetch origin $(targetBranch)
+      DIFF_COUNT=$(git rev-list --count origin/$(targetBranch)..origin/$SOURCE_BRANCH)
+      echo "Commits ahead of $(targetBranch): $DIFF_COUNT"
+
+      if [ "$DIFF_COUNT" -eq 0 ]; then
+        echo "No new changes to merge. Skipping PR creation."
+        exit 0
+      fi
+
+      EXISTING_PR=$(az repos pr list \
+        --repository "$(repoName)" \
+        --source-branch "$SOURCE_BRANCH" \
+        --target-branch "$(targetBranch)" \
+        --status active \
+        --query "[0].pullRequestId" -o tsv)
+
+      if [ -n "$EXISTING_PR" ]; then
+        echo "Active PR already exists: #$EXISTING_PR. Skipping creation."
+        exit 0
+      fi
+
+      PR_ID=$(az repos pr create \
+        --repository "$(repoName)" \
+        --source-branch "$SOURCE_BRANCH" \
+        --target-branch "$(targetBranch)" \
+        --title "Auto-sync: $SOURCE_BRANCH -> $(targetBranch)" \
+        --description "Automated PR to sync changes into $(targetBranch)." \
+        --auto-complete true \
+        --delete-source-branch false \
+        --squash false \
+        --query "pullRequestId" -o tsv)
+
+      echo "Created PR #$PR_ID"
+      echo "##vso[task.setvariable variable=createdPrId]$PR_ID"
+    env:
+      AZURE_DEVOPS_EXT_PAT: $(System.AccessToken)
+    displayName: 'Check diff and create/auto-complete PR'
+
+  - bash: |
+      set -e
+      az devops configure --defaults organization=$(organization) project="$(project)"
+
+      STATUS=$(az repos pr show --id $(createdPrId) --query "mergeStatus" -o tsv)
+      echo "Merge status: $STATUS"
+
+      if [ "$STATUS" == "conflicts" ]; then
+        echo "##vso[task.logissue type=error]PR #$(createdPrId) has merge conflicts and requires manual resolution."
+        echo "##vso[task.complete result=SucceededWithIssues;]"
+      fi
+    env:
+      AZURE_DEVOPS_EXT_PAT: $(System.AccessToken)
+    condition: ne(variables['createdPrId'], '')
+    displayName: 'Check for merge conflicts (post-creation)'
