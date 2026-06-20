@@ -3,3 +3,5 @@ trigger:
     include:
       - dev
       - test
+
+We use Azure devops and in this my scenario is in our project there are 4 branches and what ever the changes made in those 4 branches should be made in my pdg branch before implementing the change in pdg branch whenever there is change in those 4 branches a PR needs to be created and then we need to get notified for it then after the PR approval the changes that made in 4 branches or either 1 branch needs to automatically apply in my pdg branch what could be the possible ways for it 
