@@ -1,0 +1,69 @@
+trigger:
+  branches:
+    include:
+      - automation-cluster
+      - dev-cluster
+      - qag-cluster
+      - deployment-documents
+      - performance-cluster
+
+pool:
+  vmImage: 'windows-latest'
+
+variables:
+  targetBranch: 'main'
+  organization: 'https://dev.azure.com/acidaes'
+  project: 'CRMnext'
+  repoName: 'pdg-devops'
+
+steps:
+  - checkout: self
+    persistCredentials: true
+    fetchDepth: 0
+
+  - bash: |
+      set -e
+      az devops configure --defaults organization=$(organization) project="$(project)"
+
+      SOURCE_BRANCH="${BUILD_SOURCEBRANCH#refs/heads/}"
+      echo "Source branch: $SOURCE_BRANCH"
+
+      git fetch origin $(targetBranch)
+      DIFF_COUNT=$(git rev-list --count origin/$(targetBranch)..origin/$SOURCE_BRANCH)
+      echo "Commits ahead of $(targetBranch): $DIFF_COUNT"
+
+      if [ "$DIFF_COUNT" -eq 0 ]; then
+        echo "No new changes to merge. Skipping PR creation."
+        exit 0
+      fi
+
+      EXISTING_PR=$(az repos pr list --repository "$(repoName)" --source-branch "$SOURCE_BRANCH" --target-branch "$(targetBranch)" --status active --query "[0].pullRequestId" -o tsv)
+
+      if [ -n "$EXISTING_PR" ]; then
+        echo "Active PR already exists: #$EXISTING_PR. Skipping creation."
+        exit 0
+      fi
+
+      PR_ID=$(az repos pr create --repository "$(repoName)" --source-branch "$SOURCE_BRANCH" --target-branch "$(targetBranch)" --title "Auto-sync: $SOURCE_BRANCH -> $(targetBranch)" --description "Automated PR to sync changes into $(targetBranch)." --auto-complete true --delete-source-branch false --squash false --query "pullRequestId" -o tsv)
+
+      echo "Created PR #$PR_ID"
+      echo "##vso[task.setvariable variable=createdPrId]$PR_ID"
+    env:
+      AZURE_DEVOPS_EXT_PAT: $(System.AccessToken)
+    displayName: 'Check diff and create/auto-complete PR'
+
+  - bash: |
+      set -e
+      az devops configure --defaults organization=$(organization) project="$(project)"
+
+      STATUS=$(az repos pr show --id $(createdPrId) --query "mergeStatus" -o tsv)
+      echo "Merge status: $STATUS"
+
+      if [ "$STATUS" == "conflicts" ]; then
+        echo "##vso[task.logissue type=error]PR #$(createdPrId) has merge conflicts and requires manual resolution."
+        echo "##vso[task.complete result=SucceededWithIssues;]"
+      fi
+    env:
+      AZURE_DEVOPS_EXT_PAT: $(System.AccessToken)
+    condition: ne(variables['createdPrId'], '')
+    displayName: 'Check for merge conflicts (post-creation)'
